@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 @dataclass
 class AnomalyResult:
-    scores: np.ndarray      # Higher = more anomalous (0-1)
-    labels: np.ndarray      # 1 = anomaly, 0 = normal
+    scores: np.ndarray
+    labels: np.ndarray
     threshold: float
     contamination: float
 
@@ -33,9 +33,9 @@ class IsolationForestDetector:
 
     def predict(self, X: np.ndarray) -> AnomalyResult:
         Xs = self.scaler.transform(X)
-        raw_scores = -self.model.score_samples(Xs)    # higher = more anomalous
-        # Normalize to [0, 1]
-        scores = (raw_scores - raw_scores.min()) / (raw_scores.ptp() + 1e-9)
+        raw_scores = -self.model.score_samples(Xs)
+        score_range = raw_scores.max() - raw_scores.min()
+        scores = (raw_scores - raw_scores.min()) / (score_range + 1e-9)
         threshold = np.percentile(scores, (1 - self.contamination) * 100)
         labels = (scores >= threshold).astype(int)
         return AnomalyResult(scores=scores, labels=labels,
