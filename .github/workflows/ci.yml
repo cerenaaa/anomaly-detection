@@ -1,0 +1,60 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy pandas scikit-learn pytest
+      - name: Test data generators
+        run: |
+          python - <<'PYEOF'
+          from data.synthetic_anomalies import generate_transactions, generate_time_series_with_anomalies
+          df = generate_transactions(n_normal=500, n_anomalies=25)
+          assert len(df) == 525
+          assert df['is_anomaly'].sum() == 25
+          ts = generate_time_series_with_anomalies(n=200)
+          assert len(ts) == 200
+          print('data OK, anomaly rate =', round(df['is_anomaly'].mean(), 3))
+          PYEOF
+      - name: Test statistical detectors
+        run: |
+          python - <<'PYEOF'
+          import numpy as np
+          from detectors.statistical import zscore_anomalies, iqr_anomalies, cusum
+          rng = np.random.default_rng(42)
+          vals = rng.standard_normal(200)
+          vals[42] = 10.0
+          vals[99] = -8.0
+          z_labels = zscore_anomalies(vals, threshold=3.0)
+          assert z_labels[42] == 1
+          assert z_labels[99] == 1
+          iqr_labels = iqr_anomalies(vals)
+          assert iqr_labels[42] == 1
+          cs = cusum(vals)
+          assert len(cs) == len(vals)
+          print('statistical detectors OK')
+          PYEOF
+      - name: Test isolation forest
+        run: |
+          python - <<'PYEOF'
+          import numpy as np
+          from data.synthetic_anomalies import generate_transactions
+          from detectors.isolation_forest import IsolationForestDetector
+          from evaluation.metrics import evaluate
+          df = generate_transactions(n_normal=300, n_anomalies=15)
+          cols = ['amount','hour','merchant_category','distance_from_home_km','n_transactions_24h']
+          X = df[cols].values
+          y = df['is_anomaly'].values
+          det = IsolationForestDetector(contamination=0.05)
+          det.fit(X)
+          result = det.predict(X)
+          assert len(result.scores) == len(X)
+          assert result.scores.min() >= 0 and result.scores.max() <= 1
+          metrics = evaluate(y, result.scores, result.labels)
+          assert metrics['auroc'] > 0.5
+          print('isolation forest OK, AUROC =', metrics['auroc'])
+          PYEOF
